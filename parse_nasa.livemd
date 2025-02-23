@@ -1,0 +1,175 @@
+# Untitled notebook
+
+## Section
+
+```elixir
+Mix.install([
+  {:jason, "~> 1.4"},
+  {:tzdata, "~> 1.1"},
+   {:timex, "~> 3.7.11"}
+])
+```
+
+```elixir
+defmodule MoonPhases do
+  @moduledoc """
+  Identifies major moon phases (New, First Quarter, Full, Third Quarter)
+  """
+
+  def add_date(%{"time" => time} = data) do
+    [day, month, year, time_str, _tz] = String.split(time, " ")
+    [hour, minute] = String.split(time_str, ":")
+    hour = String.to_integer(hour)
+
+    {:ok, datetime} =
+      NaiveDateTime.new(
+        String.to_integer(year),
+        parse_month(month),
+        String.to_integer(day),
+        hour,
+        String.to_integer(minute),
+        0
+      )
+
+    utc_datetime = DateTime.from_naive!(datetime, "Etc/UTC")
+    la_datetime = Timex.Timezone.convert(utc_datetime, "America/New_York")
+    date = DateTime.to_date(la_datetime)
+
+    data
+    |> Map.put(:date, date)
+    |> Map.put(:datetime, la_datetime)
+  end
+
+  def get_phase(
+        %{
+          min: min,
+          max: max,
+          apotheosis: apotheosis,
+          start: start,
+          end: the_end
+        } = data
+      ) do
+    major_phase =
+      cond do
+        min < 2 and max < 2 and apotheosis ->
+          :new_moon
+
+        min < 50 and max > 50 and the_end > start ->
+          :first_quarter
+
+        min > 98 and max > 98 and apotheosis ->
+          :full_moon
+
+        min < 50 and max > 50 and the_end <= start ->
+          :third_quarter
+
+        true ->
+          nil
+      end
+
+    Map.put(data, :phase_name, major_phase)
+  end
+
+  defp parse_month("Jan"), do: 1
+  defp parse_month("Feb"), do: 2
+  defp parse_month("Mar"), do: 3
+  defp parse_month("Apr"), do: 4
+  defp parse_month("May"), do: 5
+  defp parse_month("Jun"), do: 6
+  defp parse_month("Jul"), do: 7
+  defp parse_month("Aug"), do: 8
+  defp parse_month("Sep"), do: 9
+  defp parse_month("Oct"), do: 10
+  defp parse_month("Nov"), do: 11
+  defp parse_month("Dec"), do: 12
+end
+
+defmodule MoonPhaseAnalyzer do
+  def process_file(file_path) do
+    with {:ok, content} <- File.read(file_path),
+         {:ok, moon_data} <- Jason.decode(content) do
+      find_major_phases(moon_data)
+    end
+  end
+
+  def find_major_phases(data) do
+    phases =
+      data
+      |> Enum.map(&MoonPhases.add_date/1)
+      # |> Enum.group_by(& &1[:date])
+      |> Enum.chunk_every(3, 1, :discard)
+      |> Enum.map(fn date_data ->
+        date = List.first(date_data)[:date]
+        datetime = List.first(date_data)[:datetime]
+        date_data = Enum.sort_by(date_data, & &1[:datetime], NaiveDateTime)
+        phase_data = Enum.map(date_data, fn data -> Map.get(data, "phase") end)
+        min = Enum.min(phase_data)
+        max = Enum.max(phase_data)
+
+        diffs =
+          Enum.chunk_every(phase_data, 2, 1, :discard)
+          |> Enum.map(fn [x, y] -> x - y end)
+
+        all_increasing? =
+          diffs |> Enum.all?(fn diff -> diff > 0 end)
+
+        all_decreasing? =
+          diffs |> Enum.all?(fn diff -> diff < 0 end)
+
+        %{
+          date: date,
+          datetime: datetime,
+          start: Enum.at(date_data, 0)["phase"],
+          end: Enum.at(date_data, -1)["phase"],
+          min: min,
+          max: max,
+          apotheosis: not all_increasing? and not all_decreasing?
+        }
+      end)
+      |> Enum.map(&MoonPhases.get_phase/1)
+      |> Enum.reject(&(&1[:phase_name] == nil))
+      |> Enum.dedup_by(&(&1[:date]))
+      |> Enum.dedup_by(&(&1[:phase_name]))
+
+    {:ok, phases}
+  end
+
+  def print_phases(phases) do
+    phases
+    |> Enum.reject(&(&1[:phase_name] == nil))
+    |> Enum.map(fn phase ->
+      date = phase[:date]
+
+      phase_name =
+        case phase[:phase_name] do
+          :new_moon -> "New"
+          :first_quarter -> "First"
+          :full_moon -> "Full"
+          :third_quarter -> "Third"
+        end
+
+      ~s|("#{phase_name}", Calendar.current.startOfDay(for: DateComponents(calendar: .current, year: #{date.year}, month: #{date.month}, day: #{date.day}).date!)),|
+    end)
+    |> Enum.join("\n")
+    |> IO.puts()
+  end
+end
+```
+
+```elixir
+case MoonPhaseAnalyzer.process_file(
+       "/Users/tkr/repos/our_moon/OurMoon/notebooks/mooninfo_2025.json"
+     ) do
+  {:ok, phases} ->
+    # phases
+    MoonPhaseAnalyzer.print_phases(phases)
+
+    phases
+    |> Enum.filter(fn p ->
+      p[:date] == ~D[2025-09-28] or p[:date] == ~D[2025-09-29] or p[:date] == ~D[2025-09-30]
+    end)
+
+  {:error, reason} ->
+    IO.puts("Error processing file: #{inspect(reason)}")
+end
+```
