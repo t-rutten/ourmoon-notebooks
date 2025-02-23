@@ -2,9 +2,9 @@
 
 ## Section
 
-* Using "Moon Phase and Libration, 2025" data from here: https://svs.gsfc.nasa.gov/5415/
-* JSON accessible directly from this link: https://svs.gsfc.nasa.gov/vis/a000000/a005400/a005415/mooninfo_2025.json
-  * I've downloaded locally.
+* Using "[Moon Phase and Libration, 2025](https://svs.gsfc.nasa.gov/5415/)" data from here.
+  * JSON form is accessible directly [here](https://svs.gsfc.nasa.gov/vis/a000000/a005400/a005415/mooninfo_2025.json). which I've added locally to this repo.
+* [Griffith Observatory data](https://griffithobservatory.org/explore/observing-the-sky/whats-in-the-sky/the-moon/2025-phases-of-the-moon/) has been useful for spot checking major dates.
 
 ```elixir
 Mix.install([
