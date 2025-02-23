@@ -2,6 +2,10 @@
 
 ## Section
 
+* Using "Moon Phase and Libration, 2025" data from here: https://svs.gsfc.nasa.gov/5415/
+* JSON accessible directly from this link: https://svs.gsfc.nasa.gov/vis/a000000/a005400/a005415/mooninfo_2025.json
+  * I've downloaded locally.
+
 ```elixir
 Mix.install([
   {:jason, "~> 1.4"},
@@ -12,10 +16,6 @@ Mix.install([
 
 ```elixir
 defmodule MoonPhases do
-  @moduledoc """
-  Identifies major moon phases (New, First Quarter, Full, Third Quarter)
-  """
-
   def add_date(%{"time" => time} = data) do
     [day, month, year, time_str, _tz] = String.split(time, " ")
     [hour, minute] = String.split(time_str, ":")
@@ -96,7 +96,6 @@ defmodule MoonPhaseAnalyzer do
     phases =
       data
       |> Enum.map(&MoonPhases.add_date/1)
-      # |> Enum.group_by(& &1[:date])
       |> Enum.chunk_every(3, 1, :discard)
       |> Enum.map(fn date_data ->
         date = List.first(date_data)[:date]
@@ -128,17 +127,27 @@ defmodule MoonPhaseAnalyzer do
       end)
       |> Enum.map(&MoonPhases.get_phase/1)
       |> Enum.reject(&(&1[:phase_name] == nil))
-      |> Enum.dedup_by(&(&1[:date]))
-      |> Enum.dedup_by(&(&1[:phase_name]))
+      |> Enum.dedup_by(& &1[:date])
+      |> Enum.dedup_by(& &1[:phase_name])
 
     {:ok, phases}
   end
 
+  @doc"""
+  Print major phases as dates to use in OurMoon app.
+  """
   def print_phases(phases) do
     phases
     |> Enum.reject(&(&1[:phase_name] == nil))
     |> Enum.map(fn phase ->
-      date = phase[:date]
+      datetime = phase[:datetime]
+
+      date =
+        if datetime.hour <= 12 do
+          Date.add(phase[:date], -1)
+        else
+          phase[:date]
+        end
 
       phase_name =
         case phase[:phase_name] do
@@ -158,10 +167,9 @@ end
 
 ```elixir
 case MoonPhaseAnalyzer.process_file(
-       "/Users/tkr/repos/our_moon/OurMoon/notebooks/mooninfo_2025.json"
+       "/Users/tkr/repos/our_moon/ourmoon-notebooks/mooninfo_2025.json"
      ) do
   {:ok, phases} ->
-    # phases
     MoonPhaseAnalyzer.print_phases(phases)
 
     phases
