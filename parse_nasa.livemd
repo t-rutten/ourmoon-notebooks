@@ -10,13 +10,15 @@
 Mix.install([
   {:jason, "~> 1.4"},
   {:tzdata, "~> 1.1"},
-   {:timex, "~> 3.7.11"}
+  {:timex, "~> 3.7.11"},
+  {:vega_lite, "~> 0.1"},
+  {:kino_vega_lite, "~> 0.1.8"}
 ])
 ```
 
 ```elixir
 defmodule MoonPhases do
-  def add_date(%{"time" => time} = data) do
+  def add_date(%{time: time} = data) do
     [day, month, year, time_str, _tz] = String.split(time, " ")
     [hour, minute] = String.split(time_str, ":")
     hour = String.to_integer(hour)
@@ -32,12 +34,12 @@ defmodule MoonPhases do
       )
 
     utc_datetime = DateTime.from_naive!(datetime, "Etc/UTC")
-    la_datetime = Timex.Timezone.convert(utc_datetime, "America/New_York")
-    date = DateTime.to_date(la_datetime)
+    nyc_datetime = Timex.Timezone.convert(utc_datetime, "America/New_York")
+    date = DateTime.to_date(nyc_datetime)
 
     data
     |> Map.put(:date, date)
-    |> Map.put(:datetime, la_datetime)
+    |> Map.put(:datetime, nyc_datetime)
   end
 
   def get_phase(
@@ -86,9 +88,22 @@ end
 
 defmodule MoonPhaseAnalyzer do
   def process_file(file_path) do
+    with {:ok, moon_data} <- preprocess_file(file_path) do
+      find_major_phases(moon_data)
+    end
+  end
+
+  def preprocess_file(file_path) do
     with {:ok, content} <- File.read(file_path),
          {:ok, moon_data} <- Jason.decode(content) do
-      find_major_phases(moon_data)
+      moon_data =
+        moon_data
+        |> Enum.map(fn m ->
+          Map.new(m, fn {k, v} -> {String.to_atom(k), v} end)
+        end)
+        |> Enum.map(&MoonPhases.add_date/1)
+
+      {:ok, moon_data}
     end
   end
 
@@ -101,25 +116,24 @@ defmodule MoonPhaseAnalyzer do
         date = List.first(date_data)[:date]
         datetime = List.first(date_data)[:datetime]
         date_data = Enum.sort_by(date_data, & &1[:datetime], NaiveDateTime)
-        phase_data = Enum.map(date_data, fn data -> Map.get(data, "phase") end)
+        phase_data = Enum.map(date_data, fn data -> Map.get(data, :phase) end)
         min = Enum.min(phase_data)
         max = Enum.max(phase_data)
 
         diffs =
-          Enum.chunk_every(phase_data, 2, 1, :discard)
+          phase_data
+          |> Enum.chunk_every(2, 1, :discard)
           |> Enum.map(fn [x, y] -> x - y end)
 
-        all_increasing? =
-          diffs |> Enum.all?(fn diff -> diff > 0 end)
+        all_increasing? = Enum.all?(diffs, fn diff -> diff > 0 end)
 
-        all_decreasing? =
-          diffs |> Enum.all?(fn diff -> diff < 0 end)
+        all_decreasing? = Enum.all?(diffs, fn diff -> diff < 0 end)
 
         %{
           date: date,
           datetime: datetime,
-          start: Enum.at(date_data, 0)["phase"],
-          end: Enum.at(date_data, -1)["phase"],
+          start: Enum.at(date_data, 0)[:phase],
+          end: Enum.at(date_data, -1)[:phase],
           min: min,
           max: max,
           apotheosis: not all_increasing? and not all_decreasing?
@@ -133,7 +147,7 @@ defmodule MoonPhaseAnalyzer do
     {:ok, phases}
   end
 
-  @doc"""
+  @doc """
   Print major phases as dates to use in OurMoon app.
   """
   def print_phases(phases) do
@@ -180,4 +194,34 @@ case MoonPhaseAnalyzer.process_file(
   {:error, reason} ->
     IO.puts("Error processing file: #{inspect(reason)}")
 end
+```
+
+```elixir
+{:ok, data} = MoonPhaseAnalyzer.preprocess_file("/Users/tkr/repos/our_moon/ourmoon-notebooks/mooninfo_2025.json")
+
+data
+```
+
+```elixir
+alias VegaLite, as: Vl
+
+
+```
+
+```elixir
+part_of_the_year = data |> Enum.filter(&(&1[:date].month < 7))
+
+Vl.new(width: 800, height: 400)
+# Specify data source for the graphic, see the data_from_* functions
+|> Vl.data_from_values(
+  datetime: Enum.map(part_of_the_year, & &1[:datetime]),
+  phase: Enum.map(part_of_the_year, & &1[:phase])
+)
+# |> Vl.data_from_values([%{iteration: 1, score: 1}, ...])
+# |> Vl.data_from_url("...")
+
+# Pick a visual mark for the graphic
+|> Vl.mark(:line)
+|> Vl.encode_field(:x, "datetime", type: :temporal)
+|> Vl.encode_field(:y, "phase", type: :quantitative)
 ```
